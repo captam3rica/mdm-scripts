@@ -1,12 +1,11 @@
 #!/usr/bin/env python
 
 """add_categories.py
-A script to add categories in the Jamf cloud console via API call.
+A tool to add categories in the Jamf cloud console via API call.
 """
 
 #
 #   GitHub: @captam3rica
-#   Version: 1.0
 #
 
 ###############################################################################
@@ -14,7 +13,21 @@ A script to add categories in the Jamf cloud console via API call.
 #   Leverages the Jamf Cloud API to automatically add a list of categories
 #   to Jamf Cloud.
 #
+#   usage: python add_categories.py [-h] --mdmurl MDMURL [--get-categories]
+#          [--add-categories ADD_CATEGORIES [ADD_CATEGORIES ...]] [--version]
+#
+#   optional arguments:
+#       -h, --help            show this help message and exit
+#       --mdmurl MDMURL       Jamf Pro tenant url (example.jamfcloud.com).
+#       --get-categories      See the current categories in the Jamf console.
+#       --add-categories ADD_CATEGORIES [ADD_CATEGORIES ...]
+#                             Add one or more categories, separated by spaces, to a
+#                             Jamf console. If the category contains spaces make sure
+#                             to put double quotes around it.
+#       --version             Show this tools version.
+#
 ###############################################################################
+
 
 __version__ = "1.0.0"
 
