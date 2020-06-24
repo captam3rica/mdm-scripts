@@ -1,0 +1,18 @@
+#
+#   This is a TOML config file for resouces pertaining to WorkspaceONE API
+#   calls.
+#
+#   Resources:
+#
+#       - https://github.com/toml-lang/toml
+#
+
+
+[mdm_console_url]
+url = "https://[console_url_here]"
+
+[api_header_information]
+tenant_code = "paste_key_here"  # The API key found in the WSO console
+authorization_type = "Basic"
+authorization_token = """paste_base64_encoded_api_cred_auth_token_here"""
+content_type = "application/json"
