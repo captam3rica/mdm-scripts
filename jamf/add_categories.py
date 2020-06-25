@@ -34,11 +34,12 @@ __version__ = "1.0.0"
 
 import argparse
 import base64
+import getpass
 import json
-import requests
 import sys
 
-import getpass
+# 3rd party imports
+import requests
 
 
 # Script name
