@@ -97,26 +97,43 @@
 #			- Added command to pre build the Teams directory within ~/Application
 #			  Support/Microsoft
 #
+#	2021-02-22
+#
+#		- Update version to 2.3.0
+#		- Updated for better compatibility with using this scirpt as a post
+#         installation script.
+#       - Added option to enable Jamf Pro compatibility.
+#
+#   2021-04-02
+#
+#       - Added in the ability to check for the existance of the Microsoft app on the target
+#         computer before attempting to download it. If the app already exists then the script
+#         will exit and log that the app already exists.
+#
 #######################################################################################
 
-VERSION=2.2.1
+VERSION=2.3.1
 
-# Download link - The is one of the links from the list above. The link can either be
+# Jamf Pro compatibility
+# Set this variable to true if you are using this script in Jamf Pro and plan to use
+# the built in script parameters to set variables.
+JAMF_PRO=False
+
+# Download link - This is one of the links from the list above. The link can either be
 # set here in this variable or if using Jamf in the Jamf Pro script builtin variable
 # "$4".
-DOWNLOAD_URL="Download Link"
+DOWNLOAD_URL="https://go.microsoft.com/fwlink/?linkid=869428"
 
 # App name - This is the name of the app as it appears in the /Applications folder
 # minus the ".app" extension. Example: "Microsoft Teams". The name can be set here in
 # this variable or if using Jamf Pro in the Jamf Pro script  builtin variable $5
-APP_NAME="Name of app here"
-
+APP_NAME="Microsoft Teams"
 
 # Team identifier
 # The can be obtain using hte spctl command.
 # Example: spctl -a -vv /Applications/Microsoft Teams.app
 # This variable can be assigned here in this script or in the Jamf builtin for $6
-EXPECTED_TEAM_ID="Enter Team ID"
+EXPECTED_TEAM_ID="UBF8T346G9"
 
 # Constants
 SCRIPT_NAME=$(/usr/bin/basename "$0" | /usr/bin/awk -F "." '{print $1}')
@@ -126,47 +143,63 @@ INSTALLER_TARGET="LocalSystem"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 SYSLOG="/usr/bin/syslog"
 
-#
-# Verify that Jamf builtins are not blank
-#
-
 # Verify that a download link is set.
-if [[ "$4" != "" ]]; then
-	# We are using the Jamf built in
-	DOWNLOAD_URL="$4"
-elif [[ "$DOWNLOAD_URL" != *"Download Link"* ]]; then
-	# We are using the script to define the download link.
-	DOWNLOAD_URL="$DOWNLOAD_URL"
+# Check for Jamf compatibility
+if [[ $JAMF_PRO == True ]]; then
+    # Using Jamf Pro as the MDM
+    echo "Jamf Pro is in use checking built in script parameter for Download URL ..."
+    if [[ $4 != "" ]]; then
+        # We are using the Jamf built in
+        DOWNLOAD_URL="$4"
+    fi
+
+elif [[ $DOWNLOAD_URL == "https://"* ]] && [[ $DOWNLOAD_URL != "" ]]; then
+    # We are using the script to define the download link.
+    echo "The download url is set in this script ..."
+    echo "$DOWNLOAD_URL"
+    DOWNLOAD_URL="$DOWNLOAD_URL"
 else
-	printf "%s\n" "$DOWNLOAD_URL"
-	printf "Exiting this script\n"
-	exit 1
+    echo "$DOWNLOAD_URL"
+    echo "Exiting this script"
+    exit 1
 fi
 
 # Verify that the app name is set.
-if [[ "$5" != "" ]]; then
-	APP_NAME="$5"
-elif [[ "$APP_NAME" != "Name of app here" ]]; then
-	APP_NAME="$APP_NAME"
+# Check for Jamf compatibility
+if [[ $JAMF_PRO == True ]]; then
+    # Using Jamf Pro as the MDM
+    echo "Jamf Pro is in use checking built in script parameter for App Name ..."
+    if [[ $5 != "" ]]; then
+        # We are using the Jamf built in
+        APP_NAME="$5"
+    fi
+
+elif [[ $APP_NAME != "Name of app here" ]] && [[ $APP_NAME != "" ]]; then
+    APP_NAME="$APP_NAME"
 else
-	printf "%s\n" "$APP_NAME"
-	printf "Exiting this script\n"
-	exit 1
+    printf "%s\n" "$APP_NAME"
+    printf "Exiting this script\n"
+    exit 1
 fi
 
 # Verify that an expected Team ID is set.
-if [[ "$6" != "" ]]; then
-	# We are using the Jamf built in
-	EXPECTED_TEAM_ID="$6"
-elif [[ "$EXPECTED_TEAM_ID" != *"Enter Team ID"* ]]; then
-	# We are using the script to define the download link.
-	EXPECTED_TEAM_ID="$EXPECTED_TEAM_ID"
-else
-	printf "Please enter a team ID in this script or if using Jamf Pro enter the Expected Team ID in the script builtin.\n"
-	printf "Exiting this script\n"
-	exit 1
-fi
+# Check for Jamf compatibility
+if [[ $JAMF_PRO == True ]]; then
+    # Using Jamf Pro as the MDM
+    echo "Jamf Pro is in use checking built in script parameter for Expected Team ID ..."
+    if [[ $6 != "" ]]; then
+        # We are using the Jamf built in
+        EXPECTED_TEAM_ID="$6"
+    fi
 
+elif [[ $EXPECTED_TEAM_ID != "Enter Team ID" ]] && [[ $EXPECTED_TEAM_ID != "" ]]; then
+    # We are using the script to define the download link.
+    EXPECTED_TEAM_ID="$EXPECTED_TEAM_ID"
+else
+    printf "Please enter a team ID in this script or if using Jamf Pro enter the Expected Team ID in the script builtin.\n"
+    printf "Exiting this script\n"
+    exit 1
+fi
 
 logging() {
     # Pe-pend text and print to standard output
@@ -189,42 +222,40 @@ logging() {
     fi
 
     DATE=$(date +"[%b %d, %Y %Z %T $log_level]:")
-    printf "%s %s\n" "$DATE" "$log_statement" >> "$log_path"
+    printf "%s %s\n" "$DATE" "$log_statement" >>"$log_path"
 }
-
 
 get_current_user() {
     # Grab current logged in user
-    printf '%s' "show State:/Users/ConsoleUser" | \
-        /usr/sbin/scutil | \
+    printf '%s' "show State:/Users/ConsoleUser" |
+        /usr/sbin/scutil |
         /usr/bin/awk '/Name :/ && ! /loginwindow/ {print $3}'
 }
 
+download_package() {
+    # Download the package package
+    # takes the DOWNLOAD_URL varilable as an argument
 
-download_package (){
-	# Download the package package
-	FINAL_URL=$(curl -L -I -o /dev/null -w '%{url_effective}' "$DOWNLOAD_URL")
-	PKG_NAME=$(printf "%s" "$FINAL_URL" | sed 's@.*/@@')
-	PKG_PATH="/tmp/$PKG_NAME"
+    FINAL_URL=$(curl -L -I -o /dev/null -w '%{url_effective}' "$1")
+    PKG_NAME=$(printf "%s" "$FINAL_URL" | sed 's@.*/@@')
+    PKG_PATH="/tmp/$PKG_NAME"
 
-	logging "info" "MSOFFICE365: Downloading $PKG_NAME"
+    logging "info" "MSOFFICE365: Downloading $PKG_NAME"
 
-	retry_package_download
+    retry_package_download
 }
 
+retry_package_download() {
+    # modified to attempt restartable downloads and prevent curl output to
+    # stderr
+    until curl --retry 1 --retry-max-time 180 --max-time 180 --progress-bar --fail -L -C - "$FINAL_URL" -o "$PKG_PATH"; do
+        # Retries if the download takes more than 3 minutes and/or times
+        # out/fails.
+        logging "warning" "MSOFFICE365 - Preparing to re-try failed download: $PKG_NAME"
+        /bin/sleep 10
 
-retry_package_download (){
-	# modified to attempt restartable downloads and prevent curl output to
-	# stderr
-	until curl --retry 1 --retry-max-time 180 --max-time 180 --progress-bar --fail -L -C - "$FINAL_URL" -o "$PKG_PATH"; do
-		# Retries if the download takes more than 3 minutes and/or times
-		# out/fails.
-		logging  "warning" "MSOFFICE365 - Preparing to re-try failed download: $PKG_NAME"
-		/bin/sleep 10
-
-	done
+    done
 }
-
 
 verify_installer_team_id() {
     # Verify the Team ID associated with the installation media.
@@ -237,12 +268,12 @@ verify_installer_team_id() {
     if [[ "$(/usr/bin/basename $installer_path | /usr/bin/awk -F '.' '{print $NF}')" == "pkg" ]]; then
         # Validate a .pkg
 
-        received_team_id="$(/usr/sbin/spctl -a -vv -t install $installer_path 2>&1 | \
+        received_team_id="$(/usr/sbin/spctl -a -vv -t install $installer_path 2>&1 |
             /usr/bin/awk '/origin=/ {print $NF}' | /usr/bin/tr -d '()')"
         ret="$?"
 
         # Make sure that we didn't receive an error from spctl
-        if [[ "$ret" -ne 0 ]]; then
+        if [[ $ret -ne 0 ]]; then
             logging "error" "Error validating $installer_path ...\n"
             logging "error" "Exiting installer ...\n"
             exit "$ret"
@@ -250,12 +281,12 @@ verify_installer_team_id() {
 
     else
         # Validate a .app
-        received_team_id="$(/usr/sbin/spctl -a -vv $installer_path 2>&1 | \
+        received_team_id="$(/usr/sbin/spctl -a -vv $installer_path 2>&1 |
             /usr/bin/awk '/origin=/ {print $NF}' | /usr/bin/tr -d '()')"
         ret="$?"
 
         # Make sure that we didn't receive an error from spctl
-        if [[ "$ret" -ne 0 ]]; then
+        if [[ $ret -ne 0 ]]; then
             logging "error" "Error validating $installer_path ...\n"
             logging "error" "Exiting installer ...\n"
             exit "$ret"
@@ -264,7 +295,7 @@ verify_installer_team_id() {
     fi
 
     # Check to see if the Team IDs are not equal
-    if [[ "$received_team_id" == "$EXPECTED_TEAM_ID" ]]; then
+    if [[ $received_team_id == "$EXPECTED_TEAM_ID" ]]; then
         verified=True
     else
         verified=False
@@ -274,107 +305,116 @@ verify_installer_team_id() {
     printf "$verified\n"
 }
 
+install_package() {
+    # Attempt to install the package that was downooaded.
+    # run installer with stderr redirected to dev null
+    logging "info" "MSOFFICE365 - Installing $PKG_NAME"
 
-install_package (){
-	# Attempt to install the package that was downooaded.
-	# run installer with stderr redirected to dev null
-	logging "info" "MSOFFICE365 - Installing $PKG_NAME"
+    installerExitCode=1
+    while [[ $installerExitCode -ne 0 ]]; do
 
-	installerExitCode=1
-	while [[ "$installerExitCode" -ne 0 ]]; do
+        /usr/sbin/installer -verbose -pkg "$PKG_PATH" \
+            -target "$INSTALLER_TARGET" >/dev/null 2>&1
+        installerExitCode=$?
 
-		/usr/sbin/installer -verbose -pkg "$PKG_PATH" \
-			-target "$INSTALLER_TARGET" > /dev/null 2>&1
-		installerExitCode=$?
+        if [[ $installerExitCode -ne 0 ]]; then
+            # If the istallation fails
+            logging "error" "MSOFFICE365 - Failed to install: $PKG_PATH"
+            logging "error" "MSOFFICE365 - Installer exit code: $installerExitCode"
+        fi
+    done
 
-		if [[ "$installerExitCode" -ne 0 ]]; then
-			# If the istallation fails
-			logging "error" "MSOFFICE365 - Failed to install: $PKG_PATH"
-			logging "error" "MSOFFICE365 - Installer exit code: $installerExitCode"
-		fi
-	done
-
-	# Remove the package once installed.
-	/bin/rm -rf "$PKG_PATH"
+    # Remove the package once installed.
+    /bin/rm -rf "$PKG_PATH"
 }
 
+register_mau() {
+    # -- Modified from Script originally published at https://gist.github.com/
+    # erikng/7cede5be1c0ae2f85435
+    logging "info" "MSOFFICE365 - Registering Microsoft Auto Update (MAU)"
 
-register_mau (){
-	# -- Modified from Script originally published at https://gist.github.com/
-	# erikng/7cede5be1c0ae2f85435
-	logging "info" "MSOFFICE365 - Registering Microsoft Auto Update (MAU)"
+    if [[ -e $MAU_PATH ]]; then
+        "$LSREGISTER" -R -f -trusted "$MAU_PATH"
 
-	if [[ -e "$MAU_PATH" ]]; then
-		"$LSREGISTER" -R -f -trusted "$MAU_PATH"
-
-		if [[ -e "$SECOND_MAU_PATH" ]]; then
-			"$LSREGISTER" -R -f -trusted "$SECOND_MAU_PATH"
-		fi
-	fi
+        if [[ -e $SECOND_MAU_PATH ]]; then
+            "$LSREGISTER" -R -f -trusted "$SECOND_MAU_PATH"
+        fi
+    fi
 }
 
+main() {
+    # Execute the main function
 
-main (){
-	# Execute the main function
-
-	logging "info" ""
-	logging "info" "--- Starting $SCRIPT_NAME.log ---"
-	logging "info" ""
-	logging "info" "Script version: $VERSION"
-	logging "info" ""
+    logging "info" ""
+    logging "info" "--- Starting $SCRIPT_NAME.log ---"
+    logging "info" ""
+    logging "info" "Script version: $VERSION"
+    logging "info" ""
 
     logging "info" "MSOFFICE365 - Starting Download/Install sequence."
 
-	current_user="$(get_current_user)"
+    current_user="$(get_current_user)"
 
-	logging "info" "The current logged-in user: $current_user"
+    logging "info" "The current logged-in user: $current_user"
 
-    download_package
-
-    # Team ID verification
-    if [[ "$(verify_installer_team_id $PKG_PATH)" == True ]]; then
+    if [[ -e "/Applications/$APP_NAME.app" ]]; then
         #statements
-        logging "info" "Expected team ID matches ..."
-        install_package
-        register_mau
+
+        logging "info" "$APP_NAME is already installed ..."
+        logging "info" "Nothing else to do here ..."
 
     else
-        logging "info" "Error: Expected team ID does not match ..."
-        logging "info" "Exiting the installer ..."
-        exit 1
+        logging "debug" "Download URL: $DOWNLOAD_URL"
+        logging "debug" "App name: $APP_NAME"
+        logging "debug" "Team ID: $EXPECTED_TEAM_ID"
+
+        download_package "$DOWNLOAD_URL"
+
+        # Team ID verification
+        if [[ "$(verify_installer_team_id $PKG_PATH)" == True ]]; then
+            #statements
+            logging "info" "Expected team ID matches ..."
+            install_package
+            register_mau
+
+        else
+            logging "info" "Error: Expected team ID does not match ..."
+            logging "info" "Exiting the installer ..."
+            exit 1
+        fi
+
+        # Set ownship on the User's Library/Application Support/Microsoft directory
+        logging "info" "Setting app ownership to the current user ..."
+        /usr/sbin/chown -R "$current_user:staff" "/Applications/$APP_NAME.app"
+
+        # Create the Microsoft directory within Application Support just encase it does not
+        # already exist
+        logging "info" "Creating the Microsoft directory in Application Support ..."
+        /bin/mkdir -p "/Users/$current_user/Library/Application Support/Microsoft"
+        logging "info" "Setting ownership on the Microsoft directory to $current_user ..."
+        /usr/sbin/chown -R "$current_user:staff" "/Users/$current_user/Library/Application Support/Microsoft"
+
+        # Attempting to solve for a bug where some users will get a Teams Application
+        # Support folder that is owned by root and not the current user. This cause the
+        # teams app to just bounce in the user's Dock and never launch.
+        if [[ $APP_NAME == "Microsoft Teams" ]]; then
+            # If installing Teams go ahead and buildout the Teams folder with the Microsoft
+            # Applications Support directory and set the ownershipt to the current loggerd
+            # in user.
+            logging "info" "Installing Microsoft Teams ..."
+            logging "info" "Creating the Teams folder within ~/Application Support/Microsoft ..."
+            /bin/mkdir -p "/Users/$current_user/Library/Application Support/Microsoft/Teams"
+
+            logging "info" "Setting ownership to $current_user ..."
+            /usr/sbin/chown -R "$current_user:staff" "/Users/$current_user/Library/Application Support/Microsoft/Teams"
+        fi
     fi
 
-	# Set ownship on the User's Library/Application Support/Microsoft directory
-	logging "info" "Setting app ownership to the current user ..."
-	/usr/sbin/chown -R "$current_user:staff" "/Applications/$APP_NAME.app"
+    logging "info" "MSOFFICE365: SCRIPT COMPLETE"
 
-	# Create the Microsoft directory within Application Support just encase it does not
-	# already exist
-	logging "info" "Creating the Microsoft directory in Application Support ..."
-	/bin/mkdir -p "/Users/$current_user/Library/Application Support/Microsoft"
-	logging "info" "Setting ownership on the Microsoft directory to $current_user ..."
-  	/usr/sbin/chown -R "$current_user:staff" "/Users/$current_user/Library/Application Support/Microsoft"
-
-	# Attempting to solve for a bug where some users will get a Teams Application
-	# Support folder that is owned by root and not the current user. This cause the
-	# teams app to just bounce in the user's Dock and never launch.
-	if [[ "$APP_NAME" = "Microsoft Teams" ]]; then
-		# If installing Teams go ahead and buildout the Teams folder with the Microsoft
-		# Applications Support directory and set the ownershipt to the current loggerd
-		# in user.
-		logging "info" "Installing Microsoft Teams ..."
-		logging "info" "Creating the Teams folder within ~/Application Support/Microsoft ..."
-		/bin/mkdir -p "/Users/$current_user/Library/Application Support/Microsoft/Teams"
-
-		logging "info" "Setting ownership to $current_user ..."
-		/usr/sbin/chown -R "$current_user:staff" "/Users/$current_user/Library/Application Support/Microsoft/Teams"
-	fi
-
-	logging "info" "MSOFFICE365: SCRIPT COMPLETE"
-
-	logging "info" ""
-	logging "info" "--- Ending $SCRIPT_NAME.log ---"
-	logging "info" ""
+    logging "info" ""
+    logging "info" "--- Ending $SCRIPT_NAME.log ---"
+    logging "info" ""
 }
 
 # Excute main
