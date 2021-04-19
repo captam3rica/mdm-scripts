@@ -25,5 +25,7 @@ APP_NAME="Name of app here"
 EXPECTED_TEAM_ID="Enter Team ID"
 ```
 
+Script install logs can be found at `/Library/Logs`
+
 Enjoy!
 
