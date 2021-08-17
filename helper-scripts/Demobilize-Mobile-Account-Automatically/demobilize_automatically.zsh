@@ -1,9 +1,9 @@
-#!/usr/bin/env bash
+#!/usr/bin/env zsh
 #
 # Modified 2019-04-08
 #
 ###############################################################################
-VERSION=1.0
+VERSION=1.0.1
 ###############################################################################
 #
 #   Original source is from MigrateUserHomeToDomainAcct.sh
@@ -74,35 +74,32 @@ VERSION=1.0
 # REMOVE THE MAC FROM ACTIVE DIRECTORY (YES/NO)
 ###############################################################################
 
-  REMOVE_FROM_AD="YES"
+REMOVE_FROM_AD="YES"
 
 ###############################################################################
 # MAKE THE USER ADMIN (YES/NO)
 ###############################################################################
 
-  ADMIN_RIGHTS="YES"
+ADMIN_RIGHTS="YES"
 
 ###############################################################################
 
 # Global Variable declarations
-# CLEAR_BIN="/usr/bin/clear"
 DSCL_BIN="/usr/bin/dscl"
 FULL_SCRIPT_NAME=$(/usr/bin/basename "$0")
 HERE=$(dirname "${PWD}/${FULL_SCRIPT_NAME}")
 SHOW_VERSION="$FULL_SCRIPT_NAME Version $VERSION"
-OS_VERSION=$(sw_vers -productVersion | awk -F. '{print $2}')
 
+# Save current IFS state
+ OLDIFS=$IFS
+ IFS='.' read OSVERS_MAJOR OSVERS_MINOR OSVERS_DOT_VERSION <<< "$(/usr/bin/sw_vers -productVersion)"
+ # restore IFS to previous state
+ IFS=$OLDIFS
 
-# Check the Jamf built-ins to see if they have been set.
-if [[ $4 != "" ]]; then REMOVE_FROM_AD="$4"; fi
-if [[ $5 != "" ]]; then ADMIN_RIGHTS="$4"; fi
-
-
-run_as_root()
-{
+run_as_root() {
     # Pass in the full path to the executable as $1
     # Pass in the name of the script as $2
-    if [[ $(/usr/bin/id -u) -ne 0 ]] ; then
+    if [[ $(/usr/bin/id -u) -ne 0 ]]; then
         # If not running the script as root user.
         /bin/echo
         /bin/echo "***  This application must be run as root. Please authenticate below.  ***"
@@ -111,16 +108,15 @@ run_as_root()
     fi
 }
 
-
 remove_from_ad() {
     # This force-unbinds the Mac from the existing Active Directory
     # domain and updates the search path settings to remove references to
     # Active Directory
 
-    local _SEARCH_PATH
+    local search_path
 
-    _SEARCH_PATH=$("$DSCL_BIN" /Search -read . CSPSearchPath | \
-        /usr/bin/grep Active\ Directory | \
+    search_path=$("$DSCL_BIN" /Search -read . CSPSearchPath |
+        /usr/bin/grep Active\ Directory |
         /usr/bin/sed 's/^ //')
 
     # Force unbind from Active Directory
@@ -128,8 +124,8 @@ remove_from_ad() {
 
     # Deletes the Active Directory domain from the custom /Search
     # and /Search/Contacts paths
-    "$DSCL_BIN" /Search/Contacts -delete . CSPSearchPath "$_SEARCH_PATH"
-    "$DSCL_BIN" /Search -delete . CSPSearchPath "$_SEARCH_PATH"
+    "$DSCL_BIN" /Search/Contacts -delete . CSPSearchPath "$search_path"
+    "$DSCL_BIN" /Search -delete . CSPSearchPath "$search_path"
 
     # Changes the /Search and /Search/Contacts path type from Custom to
     # Automatic
@@ -139,19 +135,19 @@ remove_from_ad() {
         SearchPolicy dsAttrTypeStandard:CSPSearchPath dsAttrTypeStandard:NSPSearchPath
 }
 
-
 check_ad_binding_status() {
     # Check for AD binding and unbind automatically if bound.
     # AD status
 
-    local _AD_STATUS
-    _AD_STATUS=$("$DSCL_BIN" localhost -list . | \
-        /usr/bin/grep "Active Directory" 2> /dev/null)
+    local ad_status
 
-    if [[ $_AD_STATUS == "Active Directory" ]]; then
+    ad_status=$("$DSCL_BIN" localhost -list . |
+        /usr/bin/grep "Active Directory" 2>/dev/null)
+
+    if [[ $ad_status == "Active Directory" ]]; then
         # If the Mac is bound to AD
         echo ""
-    	echo "This machine is bound to Active Directory."
+        echo "This machine is bound to Active Directory."
         echo "Remove Mac from AD set to: ${REMOVE_FROM_AD}"
 
         if [[ $REMOVE_FROM_AD == "YES" ]]; then
@@ -172,100 +168,87 @@ check_ad_binding_status() {
     fi
 }
 
-
-get_all_mobile_users() {
+get_all_users() {
     # Get all mobile users with a UID greater than 1000
 
-    LIST_USERS=$("$DSCL_BIN" . list /Users UniqueID | \
-        /usr/bin/awk '$2 > 1000 {print $1}' | \
-        /usr/bin/sed -e 's/^[ \t]*//')
+    # Declare local variables
+    local user_list
 
-    echo "Looking for Mobile user accounts ..."
+    # Creates a list of users with a UID greater than 500
+    # Users with a UID less than UID 500 are typically services accuonts
+    user_list=$(/usr/bin/dscl . list /Users UniqueID |
+        /usr/bin/awk '$2 > 500 {print $1}')
 
-    if [[ ${LIST_USERS} == "" ]]; then
-        # If no users with UID over 1000 are returned, Quit.
-        echo "No AD mobile user accounts found."
-        echo "Nothing to do ..."
-        echo "Exiting ..."
-        echo ""
-        /bin/sleep 1
-        exit 0
-    fi
-
-    for user in ${LIST_USERS}; do
-        echo "Found: $user"
-    done
+    echo "$user_list"
 }
-
 
 check_user_account_type() {
     # Determine the user account type
     #
-    # Takes in the $netname as $1
+    # Takes in the $user as $1
     # Takes in the attempt attribute as $2
-    #   1 = first account check before account conversion
-    #   2 = second account check after account conversion
+    #   1 - first account check before account conversion
+    #   2 - second account check after account conversion
 
-    local _ACCOUNT_TYPE
-    local _MOBILE_USER_CHECK
-    local _ACCOUNT_CHECK=$2
-
-    echo "Checking user account type ... $_ACCOUNT_CHECK"
+    local account_type
+    local mobile_user_check
+    local account_check=$2
 
     # Grab the user account type
-    _ACCOUNT_TYPE=$("$DSCL_BIN" . \
-        -read /Users/"$1" AuthenticationAuthority | \
-        /usr/bin/head -2 | \
-        /usr/bin/awk -F'/' '{print $2}' | \
-        /usr/bin/tr -d '\n' | \
+    account_type=$("$DSCL_BIN" . \
+        -read /Users/"$1" AuthenticationAuthority |
+        /usr/bin/head -2 |
+        /usr/bin/awk -F'/' '{print $2}' |
+        /usr/bin/tr -d '\n' |
         /usr/bin/sed -e 's/^[ \t]*//')
 
-    if [[ $_ACCOUNT_CHECK -eq 1 ]]; then
+    if [[ $account_check -eq 1 ]]; then
         # Check the user account type before attemtpting to convert the account.
 
-        _MOBILE_USER_CHECK=$("$DSCL_BIN" . \
-            -read /Users/"$1" AuthenticationAuthority | \
-            /usr/bin/head -2 | \
-            /usr/bin/awk -F'/' '{print $1}' | \
-            /usr/bin/tr -d '\n' | \
-            /usr/bin/sed 's/^[^:]*: //' | \
+        mobile_user_check=$("$DSCL_BIN" . \
+            -read /Users/"$1" AuthenticationAuthority |
+            /usr/bin/head -2 |
+            /usr/bin/awk -F'/' '{print $1}' |
+            /usr/bin/tr -d '\n' |
+            /usr/bin/sed 's/^[^:]*: //' |
             /usr/bin/sed s/\;/""/g)
 
-        if [[ $_ACCOUNT_TYPE = "Active Directory" ]] || [[ $_MOBILE_USER_CHECK = "LocalCachedUser" ]]; then
+        if [[ $account_type = "Active Directory" ]] || \
+            [[ $mobile_user_check = "LocalCachedUser" ]]; then
             echo "$1 has an AD mobile account."
             echo "Converting to a local account with the same username and UID."
         else
-            echo "The $1 account is not a AD mobile account."
-            echo ""
-            break
+            account_type="local_user"
         fi
     fi
 
-    if [[ $_ACCOUNT_CHECK -eq 2 ]]; then
+    if [[ $account_check -eq 2 ]]; then
         # Check the user account type after the convertion to ensure that
         # everything converted properly.
-        if [[ "$_ACCOUNT_TYPE" = "Active Directory" ]]; then
+        if [[ "$account_type" = "Active Directory" ]]; then
             # If the account type is still listed as Active Directory
             /bin/echo "Something went wrong with the conversion process."
-            /bin/echo "The $netname account is still an AD mobile account."
+            /bin/echo "The $user account is still an AD mobile account."
             /bin/echo ""
             exit 1
         else
-            /usr/bin/printf "Conversion process was successful.\nThe $netname account is now a local account.\n"
+            /usr/bin/printf "Conversion process was successful.\nThe $user account is now a local account.\n"
         fi
     fi
-}
 
+    # return the account type
+    echo "$account_type"
+}
 
 remove_ad_account_attributes() {
     # Remove the account attributes that identify the user account as an Active
     # Directory mobile account
     #
-    # Pass in $netname as $1
+    # Pass in $user as $1
     echo "Removing attributes that identity user as a mobile account ..."
 
     # Add or remove mobile account attributes to the array as needed
-    MOBILE_ATTR=(
+    mobile_attr=(
         cached_groups
         cached_auth_policy
         CopyTimestamp
@@ -284,13 +267,13 @@ remove_ad_account_attributes() {
         MCXFlags
     )
 
-    for attr in "${MOBILE_ATTR[@]}"; do
+    for attr in "${mobile_attr[@]}"; do
 
         "$DSCL_BIN" . -delete /Users/$1 ${attr}
 
-        local RESULT=$?
+        local result=$?
 
-        if [[ $RESULT -ne 0 ]]; then
+        if [[ $result -ne 0 ]]; then
             # Failed to remove attribute
             echo "Failed to remove account attribute ${attr}"
         else
@@ -299,7 +282,6 @@ remove_ad_account_attributes() {
     done
 }
 
-
 password_migration() {
     # macOS 10.14.4 will remove the the actual ShadowHashData key immediately
     # if the AuthenticationAuthority array value which references the ShadowHash
@@ -307,55 +289,61 @@ password_migration() {
     # existing AuthenticationAuthority array will be modified to remove the
     # Kerberos and LocalCachedUser user values.
     #
-    # Takes in the "$netname" as $1
+    # Takes in the "$user" as $1
+
+    # Initialize local variables
+    local authentication_authority
+    local kerberos_v5
+    local local_cached_user
+
     /bin/echo "Migrating user password ..."
     /bin/echo "Modifying AuthenticationAuthority key attribute ..."
 
-    AUTHENTICATION_AUTHORITY=$(/usr/bin/dscl -plist . -read \
+    authentication_authority=$(/usr/bin/dscl -plist . -read \
         /Users/$1 AuthenticationAuthority)
 
-    KERBEROS_V5=$(echo "${AUTHENTICATION_AUTHORITY}" | \
+    kerberos_v5=$(echo "${authentication_authority}" |
         xmllint --xpath \
-        'string(//string[contains(text(),"Kerberosv5")])' -)
+            'string(//string[contains(text(),"Kerberosv5")])' -)
 
-    LOCAL_CACHED_USER=$(echo "${AUTHENTICATION_AUTHORITY}" | \
+    local_cached_user=$(echo "${authentication_authority}" |
         xmllint --xpath \
-        'string(//string[contains(text(),"LocalCachedUser")])' -)
+            'string(//string[contains(text(),"LocalCachedUser")])' -)
 
-    if [[ ! -z "${KERBEROS_V5}" ]]; then
+    if [[ ! -z "${kerberos_v5}" ]]; then
         # Remove Kerberosv5
         /bin/echo "Removing Kerverosv5 key value ..."
         /usr/bin/dscl -plist . \
-            -delete /Users/$1 AuthenticationAuthority "${KERBEROS_V5}"
+            -delete /Users/$1 AuthenticationAuthority "${kerberos_v5}"
     fi
 
-    if [[ ! -z "${LOCAL_CACHED_USER}" ]]; then
+    if [[ ! -z "${local_cached_user}" ]]; then
         # LocalCachedUser
         /bin/echo "Removing the LocalCachedUser key value ..."
         /usr/bin/dscl -plist . \
-            -delete /Users/$1 AuthenticationAuthority "${LOCAL_CACHED_USER}"
+            -delete /Users/$1 AuthenticationAuthority "${local_cached_user}"
     fi
 
 }
 
-
 restart_directory_services() {
     # Refresh Directory Services
     #
-    # $1 = OS_VERSION
-    echo "Restarting directory services ..."
+    # $1 - OSVERS_MAJOR
+    # $2 - OSVERS_MINOR
 
-    if [[ $1 -ge 7 ]]; then
-        /usr/bin/killall opendirectoryd
+    if [[ ( $1 -eq 10 && $2 -lt 7 ) ]]; then
+        echo "Restarting DirectoryService ..."
+ 		/usr/bin/killall DirectoryService
     else
-        /usr/bin/killall DirectoryService
-    fi
+        echo "Restarting opendirectoryd ..."
+ 		/usr/bin/killall opendirectoryd
+ 	fi
 
     # Allow time for things to settle
     echo "Sleeping 20 seconds to allow things to settle down ..."
     /bin/sleep 20
 }
-
 
 modify_user_stuff() {
     # Modify stuff owned by user being migrated
@@ -369,18 +357,18 @@ modify_user_stuff() {
     # MacOS will prevent the user's Library directory permissions from being
     # altered.
     #
-    # $1 = netname
-    local _HOME_DIR
+    # $1 - user
+    local home_dir
 
     # Grab the home directory
-    _HOME_DIR=$("$DSCL_BIN" . -read /Users/"$1" NFSHomeDirectory | \
+    home_dir=$("$DSCL_BIN" . -read /Users/"$1" NFSHomeDirectory |
         /usr/bin/awk '{print $2}')
 
-    if [[ "$_HOME_DIR" != "" ]]; then
+    if [[ "$home_dir" != "" ]]; then
         # Change ownership of home directory to local user
-        /bin/echo "Home directory location: $_HOME_DIR"
+        /bin/echo "Home directory location: $home_dir"
         /bin/echo "Updating home folder permissions for the $1 account"
-        /usr/sbin/chown -R "$1" "$_HOME_DIR"
+        /usr/sbin/chown -R "$1" "$home_dir"
     fi
 
     # Add user to the staff group on the Mac
@@ -389,16 +377,15 @@ modify_user_stuff() {
     /usr/sbin/dseditgroup -o edit -a "$1" -t user staff
 
     # Show user and gorup information for the user being migrated
-    echo  "User and group information for the $1 account"
+    echo "User and group information for the $1 account"
     /usr/bin/id $1
 
 }
 
-
 make_user_admin() {
     # Make the migrated user a local admin
     #
-    # $1 = $netname
+    # $1 = $user
     # Prompt to see if the local account should be give admin rights.
     echo ""
     echo "Checking to see if user should be a local admin ..."
@@ -417,29 +404,44 @@ make_user_admin() {
 ################################ MAIN ################################
 ###############################################################################
 
-main () {
+main() {
     # Main function
-    # ${CLEAR_BIN}
 
     echo ""
     /bin/echo "********* Running $SHOW_VERSION *********"
 
     run_as_root "${HERE}" "${FULL_SCRIPT_NAME}"
+
     check_ad_binding_status
-    get_all_mobile_users
 
-    for netname in ${LIST_USERS}; do
+    user_list="$(get_all_users)"
 
-        echo "Processing user: $netname"
-        /bin/sleep 1
+    # Declare the array so that we can use it
+    declare -a user_array
 
-        check_user_account_type "${netname}" "1"
-        remove_ad_account_attributes "${netname}"
-        password_migration "${netname}"
-        restart_directory_services "${OS_VERSION}"
-        check_user_account_type "${netname}" "2"
-        modify_user_stuff "${netname}"
-        make_user_admin "${netname}"
+    # To handle the way zsh does string splitting, or lack there of, we are putting the orignial
+    # user_list into an array and converting to the sh style string splitting. This will allow us
+    # to loop over the results.
+    user_array=( ${=user_list} )
+
+    for user in $user_array; do
+
+        echo "Processing user: $user"
+
+        user_account_type="$(check_user_account_type $user '1')"
+
+        echo "the account type is $user_account_type"
+
+        # While the the user account type is not local_user then the user must be a mobile user
+        # account.
+        while [[ $user_account_type != "local_user" ]]; do
+            remove_ad_account_attributes "$user"
+            password_migration "${user}"
+            restart_directory_services "$OSVERS_MINOR" "$OSVERS_MINOR"
+            user_account_type="$(check_user_account_type $user '2')"
+            modify_user_stuff "$user"
+            make_user_admin "$user"
+        done
 
     done
 }
