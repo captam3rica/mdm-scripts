@@ -1,10 +1,10 @@
 #!/usr/bin/env zsh
 #
-# Modified 2019-04-08
+# Modified 2021.08.17
 #
-###############################################################################
+###################################################################################################
 VERSION=1.0.1
-###############################################################################
+###################################################################################################
 #
 #   Original source is from MigrateUserHomeToDomainAcct.sh
 #   Written by Patrick Gallagher - https://twitter.com/patgmac
@@ -14,32 +14,31 @@ VERSION=1.0.1
 #
 #   Originally modified by: Rich Trouton
 #
-#   Modified by Matt Wilson
+#   Current version Modified by Matt Wilson
 #
 #   NAME
 #
-#       demobilize-automatically.sh -- Automatically remove a Mac from AD and
-#       migrate all mobile user accounts to local user accounts.
+#       demobilize-automatically.sh -- Automatically remove a Mac from AD and migrate all mobile
+#       user accounts to local user accounts.
 #
 #   DESCRIPTION
 #
-#       Automatically migrates all Active Directory mobile accounts to local
-#       accounts on a given Mac by using the following process:
+#       Automatically migrates all Active Directory mobile accounts to local accounts on a given
+#       Mac by using the following process:
 #
-#       1. Detect if the Mac is bound to AD and automatically remove the Mac if
-#          the REMOVE_FROM_AD global variable is set to "YES".
+#       1. Detect if the Mac is bound to AD and automatically remove the Mac if the REMOVE_FROM_AD
+#          global variable is set to "YES".
 #
-#          This can also be specified using the Jamf built-in variable $4.
+#       2. Detect all accounts on the Mac with a UID over 1000. Mobile accounts will typically
+#          have a UID well over 1000.
 #
-#       2. Detect all accounts on the Mac with a UID over 1000. Mobile accounts
-#          will typically have a UID well over 1000.
-#       3. Remove the following attributes from each account. These attributes
-#          identify the user account as a Mobile account.
+#       3. Remove the following attributes from each account. These attributes identify the user
+#          account as a Mobile account.
 #
 #               cached_groups
 #               cached_auth_policy
-#               CopyTimestamp - This attribute is used by the OS to determine
-#                               if the account is a mobile account
+#               CopyTimestamp - This attribute is used by the OS to determine if the account is a
+#                               mobile account
 #               SMBPrimaryGroupSID
 #               OriginalAuthenticationAuthority
 #               OriginalNodeName
@@ -52,37 +51,40 @@ VERSION=1.0.1
 #               MCXSettings
 #               MCXFlags
 #
-#       4. Modify the existing AuthenticationAuthority attribute by removing the
-#          Kerberos and LocalCachedUser user values.
+#       4. Modify the existing AuthenticationAuthority attribute by removing the Kerberos and
+#          LocalCachedUser user values.
+#
 #       5. Restart the directory services process.
-#       6. Check to see if the conversion process succeeded by checking the
-#          OriginalNodeName attribute for the value "Active Directory". If the
-#          conversion is not successful the incident will be logged.
-#       7. Upon successful conversion update the permissions on the account's
-#          home folder.
 #
-#            - For MacOS Mojave 10.14 make sure to either have a PPPC profile
-#              uploaded to your MDM environment that grants the shell access to
-#              the File system.
+#       6. Check to see if the conversion process succeeded by checking the OriginalNodeName
+#          attribute for the value "Active Directory". If the conversion is not successful the
+#          incident will be logged.
 #
-#       8. Set the ADMIN_RIGHTS global variable to define whether or not admin
-#          rights should be give to the local account.
+#       7. Upon successful conversion update the permissions on the account's home folder.
 #
-#          This can also be specified with the Jamf built-in variable $5.
+#            - For MacOS Mojave 10.14 make sure to either have a PPPC profile uploaded to your MDM
+#              environment that grants the shell access to the File system.
 #
-###############################################################################
+#       8. Set the ADMIN_RIGHTS global variable to define whether or not admin rights should be
+#          give to the local account.
+#
+###################################################################################################
+###################################### VARIABLES ##################################################
+###################################################################################################
+
+###################################################################################################
 # REMOVE THE MAC FROM ACTIVE DIRECTORY (YES/NO)
-###############################################################################
+###################################################################################################
 
 REMOVE_FROM_AD="YES"
 
-###############################################################################
+###################################################################################################
 # MAKE THE USER ADMIN (YES/NO)
-###############################################################################
+###################################################################################################
 
 ADMIN_RIGHTS="YES"
 
-###############################################################################
+###################################################################################################
 
 # Global Variable declarations
 DSCL_BIN="/usr/bin/dscl"
@@ -90,11 +92,14 @@ FULL_SCRIPT_NAME=$(/usr/bin/basename "$0")
 HERE=$(dirname "${PWD}/${FULL_SCRIPT_NAME}")
 SHOW_VERSION="$FULL_SCRIPT_NAME Version $VERSION"
 
-# Save current IFS state
- OLDIFS=$IFS
- IFS='.' read OSVERS_MAJOR OSVERS_MINOR OSVERS_DOT_VERSION <<< "$(/usr/bin/sw_vers -productVersion)"
- # restore IFS to previous state
- IFS=$OLDIFS
+# macOS Version attributes
+OSVERS_MAJOR="$(/usr/bin/sw_vers -productVersion | /usr/bin/awk -F '.' '{print $1}')"
+OSVERS_MINOR="$(/usr/bin/sw_vers -productVersion | /usr/bin/awk -F '.' '{print $2}')"
+OSVERS_DOT_VERSION="$(/usr/bin/sw_vers -productVersion | /usr/bin/awk -F '.' '{print $3}')"
+
+###################################################################################################
+###################################### FUNCTIONS ##################################################
+###################################################################################################
 
 run_as_root() {
     # Pass in the full path to the executable as $1
@@ -241,8 +246,8 @@ check_user_account_type() {
 }
 
 remove_ad_account_attributes() {
-    # Remove the account attributes that identify the user account as an Active
-    # Directory mobile account
+    # Remove the account attributes that identify the user account as an Active Directory mobile
+    # account
     #
     # Pass in $user as $1
     echo "Removing attributes that identity user as a mobile account ..."
@@ -400,9 +405,9 @@ make_user_admin() {
     fi
 }
 
-###############################################################################
-################################ MAIN ################################
-###############################################################################
+###################################################################################################
+###################################### MAIN - DO NOT MODIFY #######################################
+###################################################################################################
 
 main() {
     # Main function
