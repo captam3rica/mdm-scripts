@@ -37,3 +37,10 @@ Automatically migrates all Active Directory mobile accounts to local accounts on
 - For MacOS Mojave 10.14 make sure to either have a PPPC profile uploaded to your MDM environment that grants the shell access to
 the File system.
 
+## Acknowledgments
+
+This version of the script was built on top of the work from the folks below
+
+- Guidance and inspiration from Lisa Davies: http://lisacherie.com/?p=239
+- Rich Trouton: https://derflounder.wordpress.com
+- Original source is from MigrateUserHomeToDomainAcct.sh - Patrick Gallagher - https://twitter.com/patgmac
